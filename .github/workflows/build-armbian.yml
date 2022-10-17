@@ -17,8 +17,8 @@ on:
         options:
           - jammy
           - bullseye
-          - focal
           - buster
+          - focal
       armbian_soc:
         description: "Select Amlogic SoC."
         required: false
@@ -79,6 +79,33 @@ on:
         description: "Set armbian custom name."
         required: false
         default: ""
+      desktop_environment:
+        description: "Select your desktop environment, select 'none' for cli only build"
+        required: false
+        default: "none"
+        type: choice
+        options:
+          - none
+          - xfce
+          - gnome
+          - mate
+          - cinnamon
+          - kde-plasma
+          - budgie
+          - enlightenment
+          - i3-wm
+          - lxde
+          - xmonad
+          - deepin
+      config_file:
+        description: "config_base is used in most cases, select 'none' for cli only build"
+        required: false
+        default: "none"
+        type: choice
+        options:
+          - none
+          - config_base
+          - config_full
 
 env:
   TZ: America/New_York
@@ -95,7 +122,7 @@ jobs:
       - name: Free Space
         uses: rokibhasansagar/slimhub_actions@main
         # needed for desktop builds to avoid storage space issues
-        
+
       - name: Initialization environment
         id: init
         env:
@@ -107,23 +134,28 @@ jobs:
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
           sudo timedatectl set-timezone "${TZ}"
+          if [[ "${{ github.event.inputs.desktop_environment }}" == "none" ]] &&  [[ "${{ github.event.inputs.config_file }}" != "none" ]]; then echo "Desktop Environment not specified, set desktop_environment or set config_file to 'none', Exiting..." && exit 1; elif [[ "${{ github.event.inputs.desktop_environment }}" != "none" ]] && [[ "${{ github.event.inputs.config_file }}" == "none" ]]; then echo "Config File not specified, set config_file or set desktop_environment to 'none', Exiting..."; fi
+          if [[ "${{ github.event.inputs.desktop_environment }}" == "none" ]]; then echo "BUILD_DESKTOP=no" >> $GITHUB_ENV; else echo "DESKTOP_ENVIRONMENT=${{ github.event.inputs.desktop_environment }}" >> $GITHUB_ENV && echo "BUILD_DESKTOP=yes" >> $GITHUB_ENV; fi
+          if [[ "${{ github.event.inputs.config_file }}" != "none" ]]; then echo "DESKTOP_ENVIRONMENT_CONFIG_NAME=${{ github.event.inputs.config_file }}" >> $GITHUB_ENV; fi
           echo "ARMBIAN_RELEASE=${{ github.event.inputs.set_release }}" >> $GITHUB_ENV
           echo "::set-output name=status::success"
-
       - name: Download source code
         id: down
         run: |
           git clone --depth 1 https://github.com/armbian/build.git
-
       - name: Compile Armbian [ ${{ env.ARMBIAN_RELEASE }} ]
         id: compile
         run: |
           # Compile method and parameter description: https://docs.armbian.com/Developer-Guide_Build-Options
           cd build/
-          sudo ./compile.sh RELEASE=${{ env.ARMBIAN_RELEASE }} BOARD=odroidn2 BRANCH=current BUILD_DESKTOP=yes DESKTOP_ENVIRONMENT=kde-plasma DESKTOP_ENVIRONMENT_CONFIG_NAME=config_base HOST=armbian EXPERT=yes \
-                            BUILD_MINIMAL=no KERNEL_ONLY=no KERNEL_CONFIGURE=no CLEAN_LEVEL=make,debs COMPRESS_OUTPUTIMAGE=sha
+          if [[ "${{ env.BUILD_DESKTOP }}" == "yes" ]]
+          then
+              sudo ./compile.sh RELEASE=${{ env.ARMBIAN_RELEASE }} BOARD=odroidn2 BRANCH=current BUILD_DESKTOP=yes DESKTOP_ENVIRONMENT=${{ env.DESKTOP_ENVIRONMENT }} DESKTOP_ENVIRONMENT_CONFIG_NAME=${{ env.DESKTOP_ENVIRONMENT_CONFIG_NAME }} HOST=armbian EXPERT=yes BUILD_MINIMAL=no KERNEL_ONLY=no KERNEL_CONFIGURE=no CLEAN_LEVEL=make,debs COMPRESS_OUTPUTIMAGE=sha
+          else
+              sudo ./compile.sh RELEASE=${{ env.ARMBIAN_RELEASE }} BOARD=odroidn2 BRANCH=current BUILD_DESKTOP=no HOST=armbian EXPERT=yes BUILD_MINIMAL=no KERNEL_ONLY=no KERNEL_CONFIGURE=no CLEAN_LEVEL=make,debs COMPRESS_OUTPUTIMAGE=sha
+          fi
+          
           echo "::set-output name=status::success"
-
       - name: Rebuild Armbian for Amlogic s9xxx
         uses: ophub/amlogic-s9xxx-armbian@main
         if: steps.compile.outputs.status == 'success' && !cancelled()
